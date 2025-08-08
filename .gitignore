@@ -1,0 +1,5 @@
+
+__pycache__/
+*.pyc
+solana_wallets.json
+logs.txt
