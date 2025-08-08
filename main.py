@@ -3,8 +3,8 @@ import requests
 import uuid
 import time
 import os
+import threading
 from solders.keypair import Keypair
-from base58 import b58encode
 from itertools import cycle
 
 # === Konfigurasi ===
@@ -76,8 +76,7 @@ def get_usdc_balance(public_key):
     }
     try:
         res = requests.post(SOLANA_RPC_URL, json=payload, proxies=get_proxy(), timeout=10)
-        data = res.json()
-        accounts = data.get("result", {}).get("value", [])
+        accounts = res.json().get("result", {}).get("value", [])
         if not accounts:
             return 0
         amount = int(accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"])
@@ -99,75 +98,93 @@ def generate_wallets(n):
     save_wallets(wallets)
     log(f"✅ {n} wallet Solana berhasil dibuat.")
 
-# === 2. Claim Faucet SOL Devnet ===
-def claim_sol(public_key):
+# === 2. Claim SOL ===
+def claim_sol_thread(w):
     while True:
-        balance = get_sol_balance(public_key)
-        if balance > 100_000_000:  # > 0.1 SOL
-            log(f"⏭️ Skip SOL: {public_key} (balance > 0.1)")
-            return True
+        balance = get_sol_balance(w["public_key"])
+        if balance > 100_000_000:
+            log(f"⏭️ Skip SOL: {w['public_key']} (balance > 0.1)")
+            return
 
         payload = {
             "jsonrpc": "2.0",
             "id": str(uuid.uuid4()),
             "method": "requestAirdrop",
-            "params": [public_key, 1000000000]
+            "params": [w["public_key"], 1000000000]
         }
-        try:
-            res = requests.post(SOLANA_RPC_URL, json=payload, proxies=get_proxy(), timeout=10)
-            result = res.json()
-            if "result" in result:
-                log(f"✅ SOL Claimed: {public_key}")
-                return True
-            else:
-                log(f"🔁 Retry SOL: {public_key} (balance = {balance})")
-                time.sleep(2)
-        except Exception as e:
-            log(f"❌ Error klaim SOL: {public_key} - {e}")
-            time.sleep(2)
 
-# === 3. Claim Faucet USDC Circle ===
-def claim_usdc(public_key):
+        try:
+            requests.post(SOLANA_RPC_URL, json=payload, proxies=get_proxy(), timeout=10)
+            log(f"🔁 Retry or success SOL: {w['public_key']}")
+        except Exception as e:
+            log(f"❌ Error klaim SOL: {w['public_key']} - {e}")
+        time.sleep(5)
+
+# === 3. Claim USDC ===
+def claim_usdc_thread(w):
     while True:
+        balance = get_usdc_balance(w["public_key"])
+        if balance > 0:
+            log(f"✅ USDC Claimed: {w['public_key']} (balance: {balance})")
+            return
+
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/json"
+        }
+
         payload = {
             "operationName": "RequestToken",
             "variables": {
                 "input": {
-                    "destinationAddress": public_key,
+                    "destinationAddress": w["public_key"],
                     "token": "USDC",
                     "blockchain": "SOL"
                 }
             },
-            "query": """
-            mutation RequestToken($input: RequestTokenInput!) {
+            "query": """mutation RequestToken($input: RequestTokenInput!) {
               requestToken(input: $input) {
+                amount
+                blockchain
+                contractAddress
+                currency
+                destinationAddress
+                explorerLink
+                hash
                 status
+                __typename
               }
-            }
-            """
+            }"""
         }
+
         try:
-            res = requests.post(CIRCLE_FAUCET_URL, json=payload, proxies=get_proxy(), timeout=10)
-            status = res.json()["data"]["requestToken"]["status"]
-            log(f"✅ USDC Claimed ({status}): {public_key}")
-            return True
+            res = requests.post(CIRCLE_FAUCET_URL, json=payload, headers=headers, proxies=get_proxy(), timeout=10)
+            data = res.json()
+            status = data.get("data", {}).get("requestToken", {}).get("status")
+
+            if status == "CONFIRMED":
+                log(f"✅ USDC Claimed (confirmed): {w['public_key']}")
+                return
+            else:
+                log(f"🔁 Retry USDC: {w['public_key']}")
+                time.sleep(5)
+
         except Exception as e:
-            usdc_balance = get_usdc_balance(public_key)
-            log(f"🔁 Retry USDC: {public_key} (balance = {usdc_balance}) - {e}")
-            time.sleep(3)
+            log(f"❌ Error klaim USDC: {w['public_key']} - {e}")
+            time.sleep(5)
 
 # === 4. Placeholder Kirim USDC ===
-def send_usdc_placeholder(public_key, target_wallet):
-    log(f"[PLACEHOLDER] Kirim USDC dari {public_key} ke {target_wallet}")
+def send_usdc_placeholder(from_wallet, to_wallet):
+    log(f"[PLACEHOLDER] Kirim USDC dari {from_wallet} ke {to_wallet}")
 
 # === Menu CLI ===
 def menu():
     while True:
         print("\n=== Solana Faucet Bot ===")
         print("1. Generate Wallets")
-        print("2. Claim SOL Devnet Faucet")
-        print("3. Claim USDC Faucet (Circle)")
-        print("4. Claim USDC + Send to Target Wallet")
+        print("2. Claim SOL Faucet (Multithreaded)")
+        print("3. Claim USDC Faucet (Multithreaded)")
+        print("4. Kirim USDC ke Wallet Tujuan (Placeholder)")
         print("5. Keluar")
         choice = input("Pilih menu: ").strip()
 
@@ -177,40 +194,29 @@ def menu():
 
         elif choice == "2":
             wallets = load_wallets()
+            threads = []
             for w in wallets:
-                success = claim_sol(w["public_key"])
-                if success:
-                    w["sol_claimed"] = True
-                    save_wallets(wallets)
-                time.sleep(2)
+                t = threading.Thread(target=claim_sol_thread, args=(w,))
+                threads.append(t)
+                t.start()
+            for t in threads:
+                t.join()
 
         elif choice == "3":
             wallets = load_wallets()
+            threads = []
             for w in wallets:
-                success = claim_usdc(w["public_key"])
-                if success:
-                    w["usdc_claimed"] = True
-                    save_wallets(wallets)
-                time.sleep(5)
+                t = threading.Thread(target=claim_usdc_thread, args=(w,))
+                threads.append(t)
+                t.start()
+            for t in threads:
+                t.join()
 
         elif choice == "4":
-            target_wallet = input("Masukkan wallet tujuan (USDC): ")
+            to_wallet = input("Masukkan wallet tujuan (USDC): ")
             wallets = load_wallets()
             for w in wallets:
-                success_sol = claim_sol(w["public_key"])
-                if success_sol:
-                    w["sol_claimed"] = True
-                    save_wallets(wallets)
-                time.sleep(2)
-
-                success_usdc = claim_usdc(w["public_key"])
-                if success_usdc:
-                    w["usdc_claimed"] = True
-                    save_wallets(wallets)
-                time.sleep(2)
-
-                send_usdc_placeholder(w["public_key"], target_wallet)
-                time.sleep(5)
+                send_usdc_placeholder(w["public_key"], to_wallet)
 
         elif choice == "5":
             break
@@ -218,4 +224,5 @@ def menu():
         else:
             print("Pilihan tidak valid. Ulangi.")
 
-menu()
+if __name__ == "__main__":
+    menu()
