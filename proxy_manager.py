@@ -10,7 +10,7 @@ TIMEOUT = 5
 
 def fetch_proxies_from_proxyscrape():
     print("[*] Mengambil proxy dari ProxyScrape...")
-    url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=2000&country=all&ssl=all&anonymity=all"
+    url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000&country=all&ssl=all&anonymity=all"
     proxies = []
     try:
         res = requests.get(url, timeout=10)
@@ -48,7 +48,7 @@ def fetch_proxies_from_free_proxy_list():
 
 def fetch_proxies_from_geonode():
     print("[*] Mengambil proxy dari Geonode ...")
-    url = "https://proxylist.geonode.com/api/proxy-list?limit=50&page=1&sort_by=lastChecked&sort_type=desc"
+    url = "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc"
     proxies = []
 
     try:
