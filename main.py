@@ -102,6 +102,11 @@ def generate_wallets(n):
 # === 2. Claim Faucet SOL Devnet ===
 def claim_sol(public_key):
     while True:
+        balance = get_sol_balance(public_key)
+        if balance > 100_000_000:  # > 0.1 SOL
+            log(f"⏭️ Skip SOL: {public_key} (balance > 0.1)")
+            return True
+
         payload = {
             "jsonrpc": "2.0",
             "id": str(uuid.uuid4()),
@@ -115,12 +120,8 @@ def claim_sol(public_key):
                 log(f"✅ SOL Claimed: {public_key}")
                 return True
             else:
-                balance = get_sol_balance(public_key)
-                if balance == 0:
-                    log(f"🔁 Retry SOL: {public_key} (balance = 0)")
-                    time.sleep(2)
-                    continue
-                return True
+                log(f"🔁 Retry SOL: {public_key} (balance = {balance})")
+                time.sleep(2)
         except Exception as e:
             log(f"❌ Error klaim SOL: {public_key} - {e}")
             time.sleep(2)
@@ -152,11 +153,8 @@ def claim_usdc(public_key):
             return True
         except Exception as e:
             usdc_balance = get_usdc_balance(public_key)
-            if usdc_balance == 0:
-                log(f"🔁 Retry USDC: {public_key} (balance = 0) - {e}")
-                time.sleep(3)
-                continue
-            return True
+            log(f"🔁 Retry USDC: {public_key} (balance = {usdc_balance}) - {e}")
+            time.sleep(3)
 
 # === 4. Placeholder Kirim USDC ===
 def send_usdc_placeholder(public_key, target_wallet):
@@ -180,39 +178,37 @@ def menu():
         elif choice == "2":
             wallets = load_wallets()
             for w in wallets:
-                if not w.get("sol_claimed", False):
-                    success = claim_sol(w["public_key"])
-                    if success:
-                        w["sol_claimed"] = True
-                        save_wallets(wallets)
-                    time.sleep(2)
+                success = claim_sol(w["public_key"])
+                if success:
+                    w["sol_claimed"] = True
+                    save_wallets(wallets)
+                time.sleep(2)
 
         elif choice == "3":
             wallets = load_wallets()
             for w in wallets:
-                if not w.get("usdc_claimed", False):
-                    success = claim_usdc(w["public_key"])
-                    if success:
-                        w["usdc_claimed"] = True
-                        save_wallets(wallets)
-                    time.sleep(5)
+                success = claim_usdc(w["public_key"])
+                if success:
+                    w["usdc_claimed"] = True
+                    save_wallets(wallets)
+                time.sleep(5)
 
         elif choice == "4":
             target_wallet = input("Masukkan wallet tujuan (USDC): ")
             wallets = load_wallets()
             for w in wallets:
-                if not w.get("sol_claimed", False):
-                    success = claim_sol(w["public_key"])
-                    if success:
-                        w["sol_claimed"] = True
-                        save_wallets(wallets)
-                    time.sleep(2)
-                if not w.get("usdc_claimed", False):
-                    success = claim_usdc(w["public_key"])
-                    if success:
-                        w["usdc_claimed"] = True
-                        save_wallets(wallets)
-                    time.sleep(2)
+                success_sol = claim_sol(w["public_key"])
+                if success_sol:
+                    w["sol_claimed"] = True
+                    save_wallets(wallets)
+                time.sleep(2)
+
+                success_usdc = claim_usdc(w["public_key"])
+                if success_usdc:
+                    w["usdc_claimed"] = True
+                    save_wallets(wallets)
+                time.sleep(2)
+
                 send_usdc_placeholder(w["public_key"], target_wallet)
                 time.sleep(5)
 
