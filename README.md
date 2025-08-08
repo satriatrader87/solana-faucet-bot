@@ -11,7 +11,12 @@ Bot CLI Python untuk:
 
 ### Install Library:
 ```bash
-pip install solana base58 requests
+pip install -r requirements.txt
+```
+
+### Cari Proxy:
+```bash
+python proxy_manager.py
 ```
 
 ### Jalankan:
